@@ -113,12 +113,81 @@ Diagrama, grão, medidas e decisões: [`architecture/star_schema.md`](architectu
 
 ### Tarefa 3 — Implementação (`sql/build_model.sql`)
 
-_Por fazer._
+```bash
+python src/run_sql.py sql/build_model.sql northmart.duckdb
+```
+
+O script é idempotente (`CREATE OR REPLACE`) e constrói, por esta ordem:
+
+1. **Camada raw** — os 9 CSV e o JSON carregados sem alterações (`raw_*`).
+2. **`dim_date`** — gerada, um dia por linha de 2016-01-01 a 2018-12-31 (1 096 dias).
+3. **`dim_product`** — `LEFT JOIN` à tradução; categoria em falta → nome em PT ou `unknown`.
+4. **`dim_seller`** — CSV `LEFT JOIN` perfis JSON achatados (`profile.tier`, …),
+   deduplicados (versão de `updated_at` mais recente) e com `tier` normalizado.
+5. **`dim_customer`** — uma linha por `customer_unique_id`, com a morada da compra mais recente.
+6. **`fact_sales`** — um item por linha; as chaves naturais são trocadas pelas chaves
+   substitutas (`row_number()`) através de `LEFT JOIN` às dimensões.
+7. **Verificações referenciais.**
+
+Resultado das verificações:
+
+| Verificação | Resultado |
+|---|---|
+| Linhas da fact = linhas de `raw_order_items` | 112 650 = 112 650 |
+| Órfãos (FK sem dimensão): date / product / seller / customer | 0 / 0 / 0 / 0 |
+| Duplicados no grão (`order_id`, `order_item_id`) | 0 |
+| Receita total raw vs fact | 13 591 643,70 = 13 591 643,70 |
+| Uma linha por chave natural em cada dimensão | sim (32 951 produtos, 3 095 vendedores, 96 096 clientes) |
+| Tiers após normalização | bronze 1 828 · silver 919 · gold 308 · `NULL` 40 (sem perfil) |
 
 ### Tarefa 4 — Parquet e benchmark
 
-_Por fazer._
+```bash
+python src/run_sql.py sql/export.sql northmart.duckdb   # exporta a fact em 3 formatos
+python src/benchmark.py                                  # mede tamanhos e tempos
+```
+
+**Exportação** ([`sql/export.sql`](sql/export.sql)), para `data/curated/`:
+`fact_sales.csv`, `fact_sales.parquet` e `fact_sales_by_month/` — Parquet particionado
+por `year_month` (AAAAMM, `date_key // 100`), em formato Hive (`year_month=201805/`).
+O mês foi escolhido por ser o filtro da query Q2 e por dar ~24 partições de tamanho
+equilibrado; `date_key` ou `product_key` criariam centenas/milhares de ficheiros
+minúsculos, e `order_status` é desequilibrado (~97 % `delivered`) e não é filtrado
+por nenhuma query.
+
+**Método** ([`src/benchmark.py`](src/benchmark.py), queries em
+[`sql/benchmark_queries.sql`](sql/benchmark_queries.sql)):
+- as 3 queries têm o mesmo texto nos 3 formatos — correm sobre uma view `fact` que
+  aponta, à vez, para cada ficheiro; a Q3 junta à `dim_product` da base de dados;
+- por formato e query: 1 execução de aquecimento (descartada) + 5 execuções
+  cronometradas com `time.perf_counter`; reporta-se a mediana, o mínimo e o máximo;
+- o script confirma que os 3 formatos devolvem resultados idênticos;
+- DuckDB 1.5.6, Windows 11, portátil pessoal, ficheiros em disco local.
+
+**Resultados** (também em [`evidence/benchmark.md`](evidence/benchmark.md)):
+
+| Formato | Tamanho (MB) | Q1 receita/mês (ms) | Q2 um mês (ms) | Q3 top 5 categorias (ms) |
+|---|---:|---:|---:|---:|
+| CSV | 8,76 | 133,9 | 129,3 | 161,9 |
+| Parquet | 4,55 | 8,8 | 3,4 | 19,0 |
+| Parquet particionado (mês) | 4,95 | 15,3 | 11,6 | 37,9 |
+
+_(medianas de 5 execuções)_
 
 ### Tarefa 5 — Data warehouse, data lake ou lakehouse?
 
-_Por fazer._
+A NorthMart seria mais bem servida por um **data warehouse**. Os seus dados são
+pequenos e estruturados, e os problemas dos analistas são relatórios lentos e
+joins feitos de forma diferente por cada um.
+
+Primeiro, no nosso benchmark, a receita por mês demorou 133,9 ms em CSV e 8,8 ms
+em Parquet — 15 vezes mais rápido. Um warehouse com armazenamento colunar e um
+único modelo em estrela, com as regras de limpeza aplicadas uma vez, resolve a
+lentidão e a inconsistência.
+
+Segundo, a tabela de factos ocupa apenas 4,55 MB e o particionamento por mês
+tornou a query de um só mês mais lenta (11,6 ms contra 3,4 ms). A este volume, as
+técnicas de data lake acrescentam complexidade sem benefício.
+
+Um lakehouse passaria a compensar se o volume crescesse várias ordens de grandeza
+ou se chegassem dados não estruturados, como imagens de produtos.

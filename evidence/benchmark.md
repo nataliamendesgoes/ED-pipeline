@@ -1,0 +1,15 @@
+# Benchmark PA1
+
+5 execuções por query após 1 de aquecimento; DuckDB 1.5.6.
+
+| Formato | Tamanho (MB) | Query | Mediana (ms) | Mín (ms) | Máx (ms) |
+|---|---:|---|---:|---:|---:|
+| CSV | 8.76 | Q1 receita por mês | 133.9 | 132.4 | 170.0 |
+| CSV | 8.76 | Q2 um mês (2018-05) | 129.3 | 128.7 | 140.1 |
+| CSV | 8.76 | Q3 top 5 categorias | 161.9 | 146.6 | 187.1 |
+| Parquet | 4.55 | Q1 receita por mês | 8.8 | 8.1 | 9.6 |
+| Parquet | 4.55 | Q2 um mês (2018-05) | 3.4 | 2.7 | 3.9 |
+| Parquet | 4.55 | Q3 top 5 categorias | 19.0 | 16.5 | 20.6 |
+| Parquet particionado (mês) | 4.95 | Q1 receita por mês | 15.3 | 15.2 | 16.9 |
+| Parquet particionado (mês) | 4.95 | Q2 um mês (2018-05) | 11.6 | 11.6 | 11.7 |
+| Parquet particionado (mês) | 4.95 | Q3 top 5 categorias | 37.9 | 36.0 | 38.8 |
