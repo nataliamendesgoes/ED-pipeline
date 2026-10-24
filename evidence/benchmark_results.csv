@@ -1,10 +1,10 @@
 formato,tamanho_mb,query,mediana_ms,min_ms,max_ms
-CSV,8.76,Q1 receita por mês,133.9,132.4,170.0
-CSV,8.76,Q2 um mês (2018-05),129.3,128.7,140.1
-CSV,8.76,Q3 top 5 categorias,161.9,146.6,187.1
-Parquet,4.55,Q1 receita por mês,8.8,8.1,9.6
-Parquet,4.55,Q2 um mês (2018-05),3.4,2.7,3.9
-Parquet,4.55,Q3 top 5 categorias,19.0,16.5,20.6
-Parquet particionado (mês),4.95,Q1 receita por mês,15.3,15.2,16.9
-Parquet particionado (mês),4.95,Q2 um mês (2018-05),11.6,11.6,11.7
-Parquet particionado (mês),4.95,Q3 top 5 categorias,37.9,36.0,38.8
+CSV,8.76,Q1 receita por mês,163.3,129.5,305.0
+CSV,8.76,Q2 um mês (2018-05),137.1,130.9,227.5
+CSV,8.76,Q3 top 5 categorias,162.3,152.9,172.9
+Parquet,4.55,Q1 receita por mês,9.6,9.1,11.7
+Parquet,4.55,Q2 um mês (2018-05),4.5,3.0,4.6
+Parquet,4.55,Q3 top 5 categorias,21.6,19.4,25.2
+Parquet particionado (mês),4.95,Q1 receita por mês,17.6,15.9,18.0
+Parquet particionado (mês),4.95,Q2 um mês (2018-05),14.2,13.4,15.9
+Parquet particionado (mês),4.95,Q3 top 5 categorias,43.6,40.7,46.4

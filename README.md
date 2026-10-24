@@ -168,9 +168,9 @@ por nenhuma query.
 
 | Formato | Tamanho (MB) | Q1 receita/mês (ms) | Q2 um mês (ms) | Q3 top 5 categorias (ms) |
 |---|---:|---:|---:|---:|
-| CSV | 8,76 | 133,9 | 129,3 | 161,9 |
-| Parquet | 4,55 | 8,8 | 3,4 | 19,0 |
-| Parquet particionado (mês) | 4,95 | 15,3 | 11,6 | 37,9 |
+| CSV | 8,76 | 163,3 | 137,1 | 162,3 |
+| Parquet | 4,55 | 9,6 | 4,5 | 21,6 |
+| Parquet particionado (mês) | 4,95 | 17,6 | 14,2 | 43,6 |
 
 _(medianas de 5 execuções)_
 
@@ -180,13 +180,13 @@ A NorthMart seria mais bem servida por um **data warehouse**. Os seus dados são
 pequenos e estruturados, e os problemas dos analistas são relatórios lentos e
 joins feitos de forma diferente por cada um.
 
-Primeiro, no nosso benchmark, a receita por mês demorou 133,9 ms em CSV e 8,8 ms
-em Parquet — 15 vezes mais rápido. Um warehouse com armazenamento colunar e um
+Primeiro, no nosso benchmark, a receita por mês demorou 163,3 ms em CSV e 9,6 ms
+em Parquet — 17 vezes mais rápido. Um warehouse com armazenamento colunar e um
 único modelo em estrela, com as regras de limpeza aplicadas uma vez, resolve a
 lentidão e a inconsistência.
 
 Segundo, a tabela de factos ocupa apenas 4,55 MB e o particionamento por mês
-tornou a query de um só mês mais lenta (11,6 ms contra 3,4 ms). A este volume, as
+tornou a query de um só mês mais lenta (14,2 ms contra 4,5 ms). A este volume, as
 técnicas de data lake acrescentam complexidade sem benefício.
 
 Um lakehouse passaria a compensar se o volume crescesse várias ordens de grandeza
