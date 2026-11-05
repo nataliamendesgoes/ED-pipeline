@@ -125,30 +125,35 @@ SELECT count(*) AS linhas, count(DISTINCT seller_id) AS vendedores FROM dim_sell
 -- 4b. Tiers normalizados? (esperado: bronze, silver, gold + NULL dos 40 sem perfil)
 SELECT tier, count(*) AS vendedores FROM dim_seller GROUP BY tier ORDER BY vendedores DESC;
 
--- 5. dim_customer: uma pessoa por linha, morada da compra mais recente
+-- 5. dim_customer: uma pessoa por linha (a morada de cada compra está na dim_location)
 CREATE OR REPLACE TABLE dim_customer AS
-WITH latest AS (
-    SELECT
-        c.customer_unique_id,
-        c.customer_zip_code_prefix AS zip_code_prefix,
-        c.customer_city            AS city,
-        c.customer_state           AS state
-    FROM raw_customers c
-    JOIN raw_orders o ON c.customer_id = o.customer_id
-    QUALIFY row_number() OVER (PARTITION BY c.customer_unique_id ORDER BY o.order_purchase_timestamp DESC) = 1
-)
 SELECT
     row_number() OVER (ORDER BY customer_unique_id) AS customer_key,
-    customer_unique_id,
-    zip_code_prefix,
-    city,
-    state
-FROM latest;
+    customer_unique_id
+FROM (SELECT DISTINCT customer_unique_id FROM raw_customers);
 
 -- 5a. Uma pessoa por linha? (esperado: 96096 = 96096)
 SELECT count(*) AS linhas, count(DISTINCT customer_unique_id) AS pessoas FROM dim_customer;
 
--- 6. fact_sales: um item de encomenda por linha
+-- 6. dim_location: uma morada de entrega por linha (CEP + cidade + estado)
+CREATE OR REPLACE TABLE dim_location AS
+SELECT
+    row_number() OVER (ORDER BY state, city, zip_code_prefix) AS location_key,
+    zip_code_prefix,
+    city,
+    state
+FROM (SELECT DISTINCT
+          customer_zip_code_prefix AS zip_code_prefix,
+          customer_city            AS city,
+          customer_state           AS state
+      FROM raw_customers);
+
+-- 6a. Uma linha por morada? (esperado: 15034 = 15034)
+SELECT count(*) AS linhas,
+       (SELECT count(*) FROM (SELECT DISTINCT zip_code_prefix, city, state FROM dim_location)) AS moradas
+FROM dim_location;
+
+-- 7. fact_sales: um item de encomenda por linha
 CREATE OR REPLACE TABLE fact_sales AS
 SELECT
     i.order_id,
@@ -157,6 +162,7 @@ SELECT
     dp.product_key,
     ds.seller_key,
     dc.customer_key,
+    dl.location_key,
     o.order_status,
     i.price,
     i.freight_value
@@ -166,28 +172,42 @@ JOIN      raw_customers c  ON o.customer_id = c.customer_id
 LEFT JOIN dim_date      dd ON dd.full_date = CAST(o.order_purchase_timestamp AS DATE)
 LEFT JOIN dim_product   dp ON i.product_id = dp.product_id
 LEFT JOIN dim_seller    ds ON i.seller_id = ds.seller_id
-LEFT JOIN dim_customer  dc ON c.customer_unique_id = dc.customer_unique_id;
+LEFT JOIN dim_customer  dc ON c.customer_unique_id = dc.customer_unique_id
+-- o customer_id é criado por encomenda, logo esta é a morada desta compra
+LEFT JOIN dim_location  dl ON c.customer_zip_code_prefix = dl.zip_code_prefix
+                          AND c.customer_city            = dl.city
+                          AND c.customer_state           = dl.state;
 
--- 6a. O grão manteve-se? (esperado: 112650 linhas)
+-- 7a. O grão manteve-se? (esperado: 112650 linhas)
 SELECT count(*) AS linhas FROM fact_sales;
 
--- 7. Verificações referenciais
--- 7a. Órfãos: linhas da fact cuja FK não encontrou a dimensão (esperado: tudo 0)
+-- 8. Verificações referenciais
+-- 8a. Órfãos: linhas da fact cuja FK não encontrou a dimensão (esperado: tudo 0)
 SELECT
     count(*) FILTER (WHERE date_key     IS NULL) AS orfaos_date,
     count(*) FILTER (WHERE product_key  IS NULL) AS orfaos_product,
     count(*) FILTER (WHERE seller_key   IS NULL) AS orfaos_seller,
-    count(*) FILTER (WHERE customer_key IS NULL) AS orfaos_customer
+    count(*) FILTER (WHERE customer_key IS NULL) AS orfaos_customer,
+    count(*) FILTER (WHERE location_key IS NULL) AS orfaos_location
 FROM fact_sales;
 
--- 7b. Grão único na fact? (esperado: 0 duplicados)
+-- 8b. Grão único na fact? (esperado: 0 duplicados)
 SELECT count(*) - (SELECT count(*)
                    FROM (SELECT DISTINCT order_id, order_item_id FROM fact_sales)) AS duplicados
 FROM fact_sales;
 
--- 7c. A receita total da fact é igual à da origem? (esperado: diferenca = 0)
+-- 8c. A receita total da fact é igual à da origem? (esperado: diferenca = 0)
 SELECT
     (SELECT round(sum(price), 2) FROM raw_order_items) AS receita_raw,
     (SELECT round(sum(price), 2) FROM fact_sales)      AS receita_fact,
     (SELECT round(sum(price), 2) FROM raw_order_items)
   - (SELECT round(sum(price), 2) FROM fact_sales)      AS diferenca;
+
+
+-- 8d. Histórico de moradas: pessoas que compraram em mais do que um estado (esperado: 37)
+SELECT count(*) AS pessoas_com_varios_estados
+FROM (SELECT f.customer_key
+      FROM fact_sales f
+      JOIN dim_location l ON f.location_key = l.location_key
+      GROUP BY f.customer_key
+      HAVING count(DISTINCT l.state) > 1);

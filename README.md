@@ -107,7 +107,7 @@ Diagrama, grão, medidas e decisões: [`architecture/star_schema.md`](architectu
 
 - **Grão:** um item de uma encomenda (`order_id`, `order_item_id`).
 - **Fact:** `fact_sales`, com as medidas `price` e `freight_value`.
-- **Dimensões:** `dim_date`, `dim_product`, `dim_seller`, `dim_customer`.
+- **Dimensões:** `dim_date`, `dim_product`, `dim_seller`, `dim_customer`, `dim_location`.
 - **Decisão não óbvia:** a `dim_customer` tem uma linha por pessoa
   (`customer_unique_id`) e não por `customer_id`, que é criado a cada encomenda.
 
@@ -124,20 +124,22 @@ O script é idempotente (`CREATE OR REPLACE`) e constrói, por esta ordem:
 3. **`dim_product`** — `LEFT JOIN` à tradução; categoria em falta → nome em PT ou `unknown`.
 4. **`dim_seller`** — CSV `LEFT JOIN` perfis JSON achatados (`profile.tier`, …),
    deduplicados (versão de `updated_at` mais recente) e com `tier` normalizado.
-5. **`dim_customer`** — uma linha por `customer_unique_id`, com a morada da compra mais recente.
-6. **`fact_sales`** — um item por linha; as chaves naturais são trocadas pelas chaves
-   substitutas (`row_number()`) através de `LEFT JOIN` às dimensões.
-7. **Verificações referenciais.**
+5. **`dim_customer`** — uma linha por `customer_unique_id`.
+6. **`dim_location`** — uma linha por morada (CEP + cidade + estado).
+7. **`fact_sales`** — um item por linha; as chaves naturais são trocadas pelas chaves
+   substitutas (`row_number()`) através de `LEFT JOIN` às dimensões. Cada venda guarda
+   a morada daquela compra (`location_key`), por isso o histórico não se perde.
+8. **Verificações referenciais.**
 
 Resultado das verificações:
 
 | Verificação | Resultado |
 |---|---|
 | Linhas da fact = linhas de `raw_order_items` | 112 650 = 112 650 |
-| Órfãos (FK sem dimensão): date / product / seller / customer | 0 / 0 / 0 / 0 |
+| Órfãos (FK sem dimensão): date / product / seller / customer / location | 0 / 0 / 0 / 0 / 0 |
 | Duplicados no grão (`order_id`, `order_item_id`) | 0 |
 | Receita total raw vs fact | 13 591 643,70 = 13 591 643,70 |
-| Uma linha por chave natural em cada dimensão | sim (32 951 produtos, 3 095 vendedores, 96 096 clientes) |
+| Uma linha por chave natural em cada dimensão | sim (32 951 produtos, 3 095 vendedores, 96 096 clientes, 15 034 moradas) |
 | Tiers após normalização | bronze 1 828 · silver 919 · gold 308 · `NULL` 40 (sem perfil) |
 
 ### Tarefa 4 — Parquet e benchmark
@@ -168,9 +170,9 @@ por nenhuma query.
 
 | Formato | Tamanho (MB) | Q1 receita/mês (ms) | Q2 um mês (ms) | Q3 top 5 categorias (ms) |
 |---|---:|---:|---:|---:|
-| CSV | 8,76 | 163,3 | 137,1 | 162,3 |
-| Parquet | 4,55 | 9,6 | 4,5 | 21,6 |
-| Parquet particionado (mês) | 4,95 | 17,6 | 14,2 | 43,6 |
+| CSV | 9,33 | 178,2 | 184,3 | 218,1 |
+| Parquet | 4,83 | 9,7 | 3,8 | 20,6 |
+| Parquet particionado (mês) | 5,33 | 23,2 | 16,6 | 43,8 |
 
 _(medianas de 5 execuções)_
 
@@ -180,13 +182,13 @@ A NorthMart seria mais bem servida por um **data warehouse**. Os seus dados são
 pequenos e estruturados, e os problemas dos analistas são relatórios lentos e
 joins feitos de forma diferente por cada um.
 
-Primeiro, no nosso benchmark, a receita por mês demorou 163,3 ms em CSV e 9,6 ms
-em Parquet — 17 vezes mais rápido. Um warehouse com armazenamento colunar e um
+Primeiro, no nosso benchmark, a receita por mês demorou 178,2 ms em CSV e 9,7 ms
+em Parquet — 18 vezes mais rápido. Um warehouse com armazenamento colunar e um
 único modelo em estrela, com as regras de limpeza aplicadas uma vez, resolve a
 lentidão e a inconsistência.
 
-Segundo, a tabela de factos ocupa apenas 4,55 MB e o particionamento por mês
-tornou a query de um só mês mais lenta (14,2 ms contra 4,5 ms). A este volume, as
+Segundo, a tabela de factos ocupa apenas 4,83 MB e o particionamento por mês
+tornou a query de um só mês mais lenta (16,6 ms contra 3,8 ms). A este volume, as
 técnicas de data lake acrescentam complexidade sem benefício.
 
 Um lakehouse passaria a compensar se o volume crescesse várias ordens de grandeza

@@ -4,12 +4,12 @@
 
 | Formato | Tamanho (MB) | Query | Mediana (ms) | Mín (ms) | Máx (ms) |
 |---|---:|---|---:|---:|---:|
-| CSV | 8.76 | Q1 receita por mês | 163.3 | 129.5 | 305.0 |
-| CSV | 8.76 | Q2 um mês (2018-05) | 137.1 | 130.9 | 227.5 |
-| CSV | 8.76 | Q3 top 5 categorias | 162.3 | 152.9 | 172.9 |
-| Parquet | 4.55 | Q1 receita por mês | 9.6 | 9.1 | 11.7 |
-| Parquet | 4.55 | Q2 um mês (2018-05) | 4.5 | 3.0 | 4.6 |
-| Parquet | 4.55 | Q3 top 5 categorias | 21.6 | 19.4 | 25.2 |
-| Parquet particionado (mês) | 4.95 | Q1 receita por mês | 17.6 | 15.9 | 18.0 |
-| Parquet particionado (mês) | 4.95 | Q2 um mês (2018-05) | 14.2 | 13.4 | 15.9 |
-| Parquet particionado (mês) | 4.95 | Q3 top 5 categorias | 43.6 | 40.7 | 46.4 |
+| CSV | 9.33 | Q1 receita por mês | 178.2 | 169.0 | 204.7 |
+| CSV | 9.33 | Q2 um mês (2018-05) | 184.3 | 170.7 | 189.1 |
+| CSV | 9.33 | Q3 top 5 categorias | 218.1 | 195.6 | 247.1 |
+| Parquet | 4.83 | Q1 receita por mês | 9.7 | 8.9 | 10.4 |
+| Parquet | 4.83 | Q2 um mês (2018-05) | 3.8 | 3.4 | 4.5 |
+| Parquet | 4.83 | Q3 top 5 categorias | 20.6 | 18.8 | 24.6 |
+| Parquet particionado (mês) | 5.33 | Q1 receita por mês | 23.2 | 22.2 | 26.8 |
+| Parquet particionado (mês) | 5.33 | Q2 um mês (2018-05) | 16.6 | 15.1 | 19.7 |
+| Parquet particionado (mês) | 5.33 | Q3 top 5 categorias | 43.8 | 41.0 | 48.5 |
