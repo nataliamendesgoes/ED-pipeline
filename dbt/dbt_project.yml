@@ -1,0 +1,14 @@
+name: northmart
+version: "1.0.0"
+profile: northmart
+
+model-paths: ["models"]
+test-paths: ["tests"]
+target-path: "target"
+
+models:
+  northmart:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: incremental

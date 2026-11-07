@@ -6,3 +6,9 @@ data/raw/
 .venv/
 __pycache__/
 *.zip
+.venv-dbt/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+logs/
+dbt/.user.yml

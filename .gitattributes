@@ -1,0 +1,2 @@
+# scripts de shell correm no WSL: manter fins de linha LF
+*.sh text eol=lf

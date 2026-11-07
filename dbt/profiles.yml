@@ -1,0 +1,8 @@
+# Executar o dbt a partir da raiz do repositório, para o caminho da base de dados bater certo.
+northmart:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('NORTHMART_DB', 'northmart_pa2.duckdb') }}"
+      threads: 1
