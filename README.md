@@ -193,3 +193,203 @@ técnicas de data lake acrescentam complexidade sem benefício.
 
 Um lakehouse passaria a compensar se o volume crescesse várias ordens de grandeza
 ou se chegassem dados não estruturados, como imagens de produtos.
+
+---
+
+## PA2 — Pipeline diário orquestrado (API → raw → dbt → Airflow)
+
+> ⏳ **Por preencher depois do backfill:** os campos marcados com `[...]` nas
+> Tarefas 4, 5 e 6 e os ficheiros de evidência em `evidence/`.
+
+### Visão geral
+
+```
+mock API (HTTP) ──extract──► data/raw/<dia>/page_<n>.json ──load──► raw_api_orders
+     ──dbt run stg_orders──► stg_orders ──dbt test──► ✔ ──dbt run fact_sales──► fact_sales
+```
+
+Diagrama completo e decisões: [`architecture/pipeline.md`](architecture/pipeline.md).
+
+Cada execução da DAG trata **um dia** (`{{ ds }}`). O pipeline só fala com a API por
+HTTP; as dimensões ficam como na PA1 e só a `fact_sales` é alimentada pelo pipeline.
+
+| Peça | Ficheiro |
+|---|---|
+| API de teste (fornecida) | [`mock_api.py`](mock_api.py) |
+| Extração | [`src/extract.py`](src/extract.py) |
+| Load para a camada raw | [`src/load.py`](src/load.py) |
+| Projeto dbt | [`dbt/`](dbt/) |
+| DAG | [`airflow/dags/northmart_pa2.py`](airflow/dags/northmart_pa2.py) |
+| Arranque do Airflow | [`airflow/start_airflow.sh`](airflow/start_airflow.sh) |
+
+### Reprodução
+
+O Airflow não corre no Windows, por isso **todos os comandos desta secção correm no
+Ubuntu (WSL2)**, na raiz do repositório (`/mnt/c/.../ED-work`). Requisitos: os dados
+da PA1 em `data/source/` e o ficheiro `northmart_api_feed.parquet` (página da
+disciplina), também em `data/source/`.
+
+**1. Ambientes (uma vez).** Dois ambientes fora do repositório: um para o pipeline e
+o dbt, outro para o Airflow, para as dependências não entrarem em conflito.
+
+```bash
+sudo apt install -y python3-venv
+python3 -m venv ~/venvs/pipeline
+~/venvs/pipeline/bin/pip install -r requirements.txt -r requirements-dbt.txt
+python3 -m venv ~/venvs/airflow
+~/venvs/airflow/bin/pip install "apache-airflow==3.4.0" \
+  --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.4.0/constraints-3.14.txt
+```
+
+_(As constraints têm de corresponder à versão do Python: aqui 3.14.)_
+
+**2. Base de dados (uma vez).** Constrói as dimensões da PA1 e esvazia a fact:
+
+```bash
+~/venvs/pipeline/bin/python src/run_sql.py sql/build_model.sql northmart_pa2.duckdb
+~/venvs/pipeline/bin/python src/run_sql.py sql/prepare_pa2.sql northmart_pa2.duckdb
+```
+
+**3. Arrancar a API e o Airflow** (cada um no seu terminal, e deixá-los abertos):
+
+```bash
+~/venvs/pipeline/bin/python -m uvicorn mock_api:app --port 8000   # terminal 1
+bash airflow/start_airflow.sh                                     # terminal 2 → http://localhost:8080
+```
+
+Utilizador `admin`; a password está em `~/airflow/simple_auth_manager_passwords.json.generated`.
+
+**4. Correr o pipeline** (terminal 3):
+
+```bash
+export AIRFLOW_HOME=~/airflow PATH=~/venvs/airflow/bin:$PATH
+airflow dags unpause northmart_pa2
+# um dia
+airflow dags trigger northmart_pa2 --logical-date 2018-05-03T00:00:00+00:00
+# backfill dos 14 dias
+airflow backfill create --dag-id northmart_pa2 --from-date 2018-05-01 --to-date 2018-05-14
+```
+
+Contar as linhas da fact (com nenhuma tarefa a correr, por causa do bloqueio do DuckDB):
+
+```bash
+~/venvs/pipeline/bin/python -c "import duckdb; print(duckdb.connect('northmart_pa2.duckdb', read_only=True).sql('SELECT count(*) FROM fact_sales').fetchone())"
+```
+
+Cada passo também pode correr à mão, sem Airflow (útil para depurar):
+
+```bash
+~/venvs/pipeline/bin/python src/extract.py 2018-05-03
+~/venvs/pipeline/bin/python src/load.py 2018-05-03
+~/venvs/pipeline/bin/dbt run  --project-dir dbt --profiles-dir dbt --select stg_orders --vars "{execution_date: '2018-05-03'}"
+~/venvs/pipeline/bin/dbt test --project-dir dbt --profiles-dir dbt --select stg_orders --vars "{execution_date: '2018-05-03'}"
+~/venvs/pipeline/bin/dbt run  --project-dir dbt --profiles-dir dbt --select fact_sales --vars "{execution_date: '2018-05-03'}"
+```
+
+### Tarefa 1 — Extração e landing raw
+
+**Extração** ([`src/extract.py`](src/extract.py)) — `python src/extract.py <dia>`:
+- **Paginação:** pede a página 1, lê `total_pages` da resposta e continua até à última.
+- **Retry:** um `503` (serviço indisponível) é repetido até 5 vezes, com espera
+  crescente (1 s, 2 s, 3 s, …); ao fim de 5 tentativas a tarefa falha.
+- **Erros que não se repetem:** um `400` (pedido mal feito, ex.: data inválida) falha
+  logo — repetir o mesmo pedido daria o mesmo erro.
+- **Raw sem alterações:** cada resposta é gravada tal como chegou (`resposta.text`) em
+  `data/raw/<dia>/page_<n>.json`. A pasta só é criada depois de uma resposta válida.
+- Limitação conhecida: erros de ligação ou *timeout* não são repetidos.
+
+**Load** ([`src/load.py`](src/load.py)) — `python src/load.py <dia>`:
+- Lê os JSON do dia com `read_json` e desdobra os itens com `unnest` para a tabela
+  `raw_api_orders` (uma linha por item, mais a coluna `extraction_date`).
+- **Todas as colunas são `VARCHAR`:** um dia com dados corrompidos (ex.: um preço que
+  não é número) é carregado na mesma e os problemas são apanhados pelos testes, em vez
+  de o load rebentar sem dizer porquê.
+- **Idempotente:** numa transação, apaga primeiro as linhas desse `extraction_date` e
+  insere-as de novo — recarregar um dia não duplica linhas.
+- Fecha a ligação no fim: o DuckDB só aceita um processo a escrever de cada vez.
+
+### Tarefa 2 — Modelos dbt
+
+- [`stg_orders`](dbt/models/staging/stg_orders.sql) (view): os itens **de um só dia**
+  (`WHERE extraction_date = var('execution_date')`), com tipos corretos (`TRY_CAST`:
+  um valor inválido fica `NULL` e é apanhado pelos testes) e `order_status` normalizado
+  (`lower(trim(...))`).
+- [`fact_sales`](dbt/models/marts/fact_sales.sql) (**incremental**, `delete+insert`,
+  `unique_key = [order_id, order_item_id]`): troca as chaves naturais pelas chaves
+  substitutas das dimensões da PA1, com o mesmo grão e as mesmas colunas. Ao
+  reprocessar um dia, as linhas desse dia são apagadas e inseridas de novo.
+- As dimensões e `raw_customers` são declaradas como `source` em
+  [`sources.yml`](dbt/models/staging/sources.yml) e não são alteradas pelo dbt.
+- Os `LEFT JOIN` às dimensões são de propósito: um item sem correspondência não
+  desaparece em silêncio — é apanhado pelos testes antes de chegar à fact.
+
+### Tarefa 3 — Testes dbt
+
+Os testes correm sobre o `stg_orders` (o lote do dia), **antes** de a fact ser
+atualizada. 10 testes, em [`schema.yml`](dbt/models/staging/schema.yml) e
+[`dbt/tests/`](dbt/tests/):
+
+| Categoria | Teste | O que garante |
+|---|---|---|
+| Unicidade | [`item_unico`](dbt/tests/item_unico.sql) | o par (`order_id`, `order_item_id`) — o grão da fact — não se repete |
+| Não nulo | `not_null` em `order_id`, `customer_id`, `price` | campos essenciais preenchidos (e com tipo válido, por causa do `TRY_CAST`) |
+| Integridade referencial | `relationships` `product_id` → `dim_product`, `seller_id` → `dim_seller`, `customer_id` → `raw_customers` | cada item encontra o produto, o vendedor e o cliente |
+| Valores aceites | `accepted_values` em `order_status` | só os 8 estados conhecidos |
+| Intervalo aceite | [`price_positivo`](dbt/tests/price_positivo.sql) | `price > 0` |
+| Regra de negócio | [`compra_no_dia_do_lote`](dbt/tests/compra_no_dia_do_lote.sql) | a data de compra de cada item é o dia do lote (e é uma data válida) |
+
+Os testes personalizados devolvem as **linhas que violam a regra**: 0 linhas = PASS.
+A regra de negócio usa `IS DISTINCT FROM` em vez de `<>` para também falhar quando a
+data é inválida (`NULL`).
+
+Num dia limpo (2018-05-03): `PASS=10`. Para confirmar que os testes falham quando
+devem, foram inseridos numa cópia da base de dados um item duplicado, um cliente
+inexistente, um preço negativo e duas datas erradas: falharam `item_unico`,
+`relationships` do `customer_id`, `price_positivo` e `compra_no_dia_do_lote`.
+
+Output do `dbt test` (dia limpo e dia corrompido): ⏳ `evidence/dbt_test_[...].txt`
+
+### Tarefa 4 — DAG no Airflow
+
+[`airflow/dags/northmart_pa2.py`](airflow/dags/northmart_pa2.py):
+
+```
+extract >> load >> transform_staging >> test >> transform_marts
+```
+
+- **Agendamento diário** (`@daily`), de 2018-05-01 a 2018-05-14; cada execução passa o
+  seu dia (`{{ ds }}`) aos scripts e ao dbt (`--vars`).
+- **Testes entre o staging e o mart:** se a tarefa `test` falhar, a `transform_marts`
+  não corre (`upstream_failed`) e a `fact_sales` desse dia não é tocada.
+- **`max_active_runs=1`:** o backfill corre um dia de cada vez. Com dois dias em
+  paralelo, o segundo processo falharia ao abrir o DuckDB, que só aceita um escritor.
+- **`catchup=False`:** os dias antigos não arrancam sozinhos ao ligar a DAG; o backfill
+  é lançado à mão (`airflow backfill create`).
+- **Reprocessar um dia não duplica:** o load apaga o dia antes de o inserir, e a fact
+  usa `delete+insert` pela chave `order_id` + `order_item_id`.
+
+Evidências: ⏳
+- Grelha do Airflow depois do backfill: `evidence/airflow_grid.png`
+- Linhas da `fact_sales` antes e depois de reprocessar [DIA]: [ANTES] → [DEPOIS]
+
+### Tarefa 5 — Incidente
+
+⏳ **Dia corrompido:** [DIA]. **Testes que falharam:** [TESTES] (ver
+`evidence/dbt_test_[...].txt`). A grelha mostra a tarefa `test` a vermelho e a
+`transform_marts` em `upstream_failed`, por isso a `fact_sales` não foi atualizada
+nesse dia: [contagem da fact antes e depois].
+
+Como tratar o lote:
+
+1. O lote de [DIA] fica guardado tal como chegou (JSON em `data/raw/[DIA]/` e linhas em `raw_api_orders`), sem correções à mão, para servir de prova e permitir repetir o processamento.
+2. A `fact_sales` desse dia não é atualizada: a DAG parou na tarefa `test` e a `transform_marts` não correu, por isso os relatórios mostram um dia em falta, e não números errados.
+3. A equipa responsável pela API é avisada com os testes que falharam ([TESTES]) e exemplos das linhas com defeito, para corrigir os dados na origem.
+4. Quando chegarem dados corrigidos, corre-se de novo a DAG para esse dia: o extract volta a pedir os dados à API e o load substitui o lote antigo, porque apaga primeiro as linhas desse dia.
+5. Se os testes passarem, a `transform_marts` atualiza a fact com `delete+insert` pela chave `order_id` + `order_item_id`, por isso repetir o dia não cria duplicados.
+
+### Tarefa 6 — Tarefa mais lenta
+
+⏳ Nas durações do Airflow (vista Gantt, [N] dias limpos), a tarefa mais lenta foi
+**[TAREFA]**, com cerca de **[X] s**, contra [Y] s das restantes. A causa é [CAUSA].
+Uma otimização seria [OTIMIZAÇÃO], o que reduziria [o quê] sem alterar o resultado da
+`fact_sales`. _(máx. 100 palavras)_
