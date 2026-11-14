@@ -1,0 +1,37 @@
+# PA2 · Tarefa 3 — output do dbt test, dia limpo (2018-05-03)
+# Comandos (raiz do repositório, com nenhuma tarefa da DAG a correr):
+#   dbt run  --select stg_orders --project-dir dbt --profiles-dir dbt --vars "{execution_date: '2018-05-03'}"
+#   dbt test --select stg_orders --project-dir dbt --profiles-dir dbt --vars "{execution_date: '2018-05-03'}"
+
+04:30:06  Running with dbt=1.12.6
+04:30:06  Registered adapter: duckdb=1.11.1
+04:30:06  Found 2 models, 10 data tests, 7 sources, 511 macros
+04:30:06  
+04:30:06  Concurrency: 1 threads (target='dev')
+04:30:06  
+04:30:07  1 of 10 START test accepted_values_stg_orders_order_status__delivered__shipped__canceled__unavailable__invoiced__processing__created__approved  [RUN]
+04:30:07  1 of 10 PASS accepted_values_stg_orders_order_status__delivered__shipped__canceled__unavailable__invoiced__processing__created__approved  [PASS in 0.05s]
+04:30:07  2 of 10 START test compra_no_dia_do_lote ....................................... [RUN]
+04:30:07  2 of 10 PASS compra_no_dia_do_lote ............................................. [PASS in 0.01s]
+04:30:07  3 of 10 START test item_unico .................................................. [RUN]
+04:30:07  3 of 10 PASS item_unico ........................................................ [PASS in 0.01s]
+04:30:07  4 of 10 START test not_null_stg_orders_customer_id ............................. [RUN]
+04:30:07  4 of 10 PASS not_null_stg_orders_customer_id ................................... [PASS in 0.01s]
+04:30:07  5 of 10 START test not_null_stg_orders_order_id ................................ [RUN]
+04:30:07  5 of 10 PASS not_null_stg_orders_order_id ...................................... [PASS in 0.01s]
+04:30:07  6 of 10 START test not_null_stg_orders_price ................................... [RUN]
+04:30:07  6 of 10 PASS not_null_stg_orders_price ......................................... [PASS in 0.01s]
+04:30:07  7 of 10 START test price_positivo .............................................. [RUN]
+04:30:07  7 of 10 PASS price_positivo .................................................... [PASS in 0.01s]
+04:30:07  8 of 10 START test relationships_stg_orders_customer_id__customer_id__source_raw_raw_customers_  [RUN]
+04:30:07  8 of 10 PASS relationships_stg_orders_customer_id__customer_id__source_raw_raw_customers_  [PASS in 0.02s]
+04:30:07  9 of 10 START test relationships_stg_orders_product_id__product_id__source_raw_dim_product_  [RUN]
+04:30:07  9 of 10 PASS relationships_stg_orders_product_id__product_id__source_raw_dim_product_  [PASS in 0.02s]
+04:30:07  10 of 10 START test relationships_stg_orders_seller_id__seller_id__source_raw_dim_seller_  [RUN]
+04:30:07  10 of 10 PASS relationships_stg_orders_seller_id__seller_id__source_raw_dim_seller_  [PASS in 0.01s]
+04:30:07  
+04:30:07  Finished running 10 data tests in 0 hours 0 minutes and 0.20 seconds (0.20s).
+04:30:07  
+04:30:07  Completed successfully
+04:30:07  
+04:30:07  Done. PASS=10 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=10

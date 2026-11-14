@@ -1,0 +1,10 @@
+# PA2 · Tarefa 4 — reprocessar um dia não duplica linhas
+# Dia reprocessado pelo Airflow: 2018-05-03 (já carregado no backfill).
+# Comando:
+#   airflow backfill create --dag-id northmart_pa2 --from-date 2018-05-03 --to-date 2018-05-03 \
+#       --reprocess-behavior completed --max-active-runs 1
+# As 5 tarefas voltaram a correr: extract às 04:32:43, transform_marts terminou às 04:33:00 (UTC, 14/11/2026).
+
+ANTES : fact_sales total = 4059 | fact_sales de 2018-05-03 = 357 | raw_api_orders de 2018-05-03 = 357 | raw_api_orders total = 4471
+DEPOIS: fact_sales total = 4059 | fact_sales de 2018-05-03 = 357 | raw_api_orders de 2018-05-03 = 357 | raw_api_orders total = 4471
+Duplicados no grão (order_id, order_item_id) depois: 0

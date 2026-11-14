@@ -1,0 +1,52 @@
+# PA2 · Tarefa 3 — output do dbt test, dia corrompido (2018-05-09)
+# Comandos (raiz do repositório, com nenhuma tarefa da DAG a correr):
+#   dbt run  --select stg_orders --project-dir dbt --profiles-dir dbt --vars "{execution_date: '2018-05-09'}"
+#   dbt test --select stg_orders --project-dir dbt --profiles-dir dbt --vars "{execution_date: '2018-05-09'}"
+
+04:30:11  Running with dbt=1.12.6
+04:30:11  Registered adapter: duckdb=1.11.1
+04:30:12  Found 2 models, 10 data tests, 7 sources, 511 macros
+04:30:12  
+04:30:12  Concurrency: 1 threads (target='dev')
+04:30:12  
+04:30:12  1 of 10 START test accepted_values_stg_orders_order_status__delivered__shipped__canceled__unavailable__invoiced__processing__created__approved  [RUN]
+04:30:12  1 of 10 PASS accepted_values_stg_orders_order_status__delivered__shipped__canceled__unavailable__invoiced__processing__created__approved  [PASS in 0.04s]
+04:30:12  2 of 10 START test compra_no_dia_do_lote ....................................... [RUN]
+04:30:12  2 of 10 PASS compra_no_dia_do_lote ............................................. [PASS in 0.01s]
+04:30:12  3 of 10 START test item_unico .................................................. [RUN]
+04:30:12  3 of 10 FAIL 20 item_unico ..................................................... [FAIL 20 in 0.01s]
+04:30:12  4 of 10 START test not_null_stg_orders_customer_id ............................. [RUN]
+04:30:12  4 of 10 FAIL 10 not_null_stg_orders_customer_id ................................ [FAIL 10 in 0.01s]
+04:30:12  5 of 10 START test not_null_stg_orders_order_id ................................ [RUN]
+04:30:12  5 of 10 PASS not_null_stg_orders_order_id ...................................... [PASS in 0.01s]
+04:30:12  6 of 10 START test not_null_stg_orders_price ................................... [RUN]
+04:30:12  6 of 10 PASS not_null_stg_orders_price ......................................... [PASS in 0.01s]
+04:30:12  7 of 10 START test price_positivo .............................................. [RUN]
+04:30:12  7 of 10 FAIL 15 price_positivo ................................................. [FAIL 15 in 0.01s]
+04:30:12  8 of 10 START test relationships_stg_orders_customer_id__customer_id__source_raw_raw_customers_  [RUN]
+04:30:12  8 of 10 PASS relationships_stg_orders_customer_id__customer_id__source_raw_raw_customers_  [PASS in 0.02s]
+04:30:12  9 of 10 START test relationships_stg_orders_product_id__product_id__source_raw_dim_product_  [RUN]
+04:30:12  9 of 10 PASS relationships_stg_orders_product_id__product_id__source_raw_dim_product_  [PASS in 0.01s]
+04:30:12  10 of 10 START test relationships_stg_orders_seller_id__seller_id__source_raw_dim_seller_  [RUN]
+04:30:12  10 of 10 PASS relationships_stg_orders_seller_id__seller_id__source_raw_dim_seller_  [PASS in 0.01s]
+04:30:12  
+04:30:12  Finished running 10 data tests in 0 hours 0 minutes and 0.18 seconds (0.18s).
+04:30:12  
+04:30:12  Completed with 3 errors, 0 partial successes, and 0 warnings:
+04:30:12  
+04:30:12  [ERROR]: in test item_unico (tests/item_unico.sql)
+04:30:12    Got 20 results, configured to fail if != 0
+04:30:12  
+04:30:12    compiled code at target/compiled/northmart/tests/item_unico.sql
+04:30:12  
+04:30:12  [ERROR]: in test not_null_stg_orders_customer_id (models/staging/schema.yml)
+04:30:12    Got 10 results, configured to fail if != 0
+04:30:12  
+04:30:12    compiled code at target/compiled/northmart/models/staging/schema.yml/not_null_stg_orders_customer_id.sql
+04:30:12  
+04:30:12  [ERROR]: in test price_positivo (tests/price_positivo.sql)
+04:30:12    Got 15 results, configured to fail if != 0
+04:30:12  
+04:30:12    compiled code at target/compiled/northmart/tests/price_positivo.sql
+04:30:12  
+04:30:12  Done. PASS=7 WARN=0 ERROR=3 SKIP=0 NO-OP=0 REUSED=0 TOTAL=10

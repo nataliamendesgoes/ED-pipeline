@@ -198,8 +198,8 @@ ou se chegassem dados não estruturados, como imagens de produtos.
 
 ## PA2 — Pipeline diário orquestrado (API → raw → dbt → Airflow)
 
-> ⏳ **Por preencher depois do backfill:** os campos marcados com `[...]` nas
-> Tarefas 4, 5 e 6 e os ficheiros de evidência em `evidence/`.
+> Evidências em [`evidence/`](evidence/), recolhidas num backfill dos 14 dias corrido a
+> 14/11/2026 (macOS, Python 3.12, Airflow 3.4.0, dbt-core 1.12.6, DuckDB 1.5.6).
 
 ### Visão geral
 
@@ -241,7 +241,11 @@ python3 -m venv ~/venvs/airflow
   --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.4.0/constraints-3.14.txt
 ```
 
-_(As constraints têm de corresponder à versão do Python: aqui 3.14.)_
+_(As constraints têm de corresponder à versão do Python: aqui 3.14. Noutra versão,
+troca-se o número no nome do ficheiro, por exemplo `constraints-3.12.txt`. O pipeline
+também foi corrido em macOS com Python 3.12; aí, se a instalação do dbt falhar com
+`CERTIFICATE_VERIFY_FAILED`, falta instalar os certificados do Python
+(`Install Certificates.command`).)_
 
 **2. Base de dados (uma vez).** Constrói as dimensões da PA1 e esvazia a fact:
 
@@ -266,14 +270,19 @@ export AIRFLOW_HOME=~/airflow PATH=~/venvs/airflow/bin:$PATH
 airflow dags unpause northmart_pa2
 # um dia
 airflow dags trigger northmart_pa2 --logical-date 2018-05-03T00:00:00+00:00
-# backfill dos 14 dias
-airflow backfill create --dag-id northmart_pa2 --from-date 2018-05-01 --to-date 2018-05-14
+# backfill dos 14 dias, um dia de cada vez (o DuckDB só aceita um escritor)
+airflow backfill create --dag-id northmart_pa2 --from-date 2018-05-01 --to-date 2018-05-14 --max-active-runs 1
+# reprocessar um dia que já correu (completed = dia que passou; failed = dia que falhou)
+airflow backfill create --dag-id northmart_pa2 --from-date 2018-05-03 --to-date 2018-05-03 --reprocess-behavior completed --max-active-runs 1
 ```
 
-Contar as linhas da fact (com nenhuma tarefa a correr, por causa do bloqueio do DuckDB):
+Contar as linhas (com nenhuma tarefa a correr, por causa do bloqueio do DuckDB):
 
 ```bash
+# total da fact
 ~/venvs/pipeline/bin/python -c "import duckdb; print(duckdb.connect('northmart_pa2.duckdb', read_only=True).sql('SELECT count(*) FROM fact_sales').fetchone())"
+# linhas por dia no raw e na fact
+~/venvs/pipeline/bin/python src/run_sql.py sql/pa2_counts.sql northmart_pa2.duckdb
 ```
 
 Cada passo também pode correr à mão, sem Airflow (útil para depurar):
@@ -347,7 +356,9 @@ devem, foram inseridos numa cópia da base de dados um item duplicado, um client
 inexistente, um preço negativo e duas datas erradas: falharam `item_unico`,
 `relationships` do `customer_id`, `price_positivo` e `compra_no_dia_do_lote`.
 
-Output do `dbt test` (dia limpo e dia corrompido): ⏳ `evidence/dbt_test_[...].txt`
+Output do `dbt test`:
+- dia limpo, `PASS=10`: [`evidence/dbt_test_2018-05-03_limpo.txt`](evidence/dbt_test_2018-05-03_limpo.txt)
+- dia corrompido, `PASS=7 ERROR=3`: [`evidence/dbt_test_2018-05-09_corrompido.txt`](evidence/dbt_test_2018-05-09_corrompido.txt)
 
 ### Tarefa 4 — DAG no Airflow
 
@@ -363,33 +374,61 @@ extract >> load >> transform_staging >> test >> transform_marts
   não corre (`upstream_failed`) e a `fact_sales` desse dia não é tocada.
 - **`max_active_runs=1`:** o backfill corre um dia de cada vez. Com dois dias em
   paralelo, o segundo processo falharia ao abrir o DuckDB, que só aceita um escritor.
+  No Airflow 3 o comando de backfill tem o seu próprio limite, por isso leva também
+  `--max-active-runs 1`.
+- **Caminho do projeto calculado pela DAG** a partir da sua própria localização
+  (`Path(__file__).resolve().parents[2]`): corre em qualquer máquina sem editar caminhos.
+- **Opções do dbt depois do subcomando** (`dbt run --project-dir dbt ...`): o dbt 1.12
+  não as aceita antes de `run`/`test`.
 - **`catchup=False`:** os dias antigos não arrancam sozinhos ao ligar a DAG; o backfill
   é lançado à mão (`airflow backfill create`).
 - **Reprocessar um dia não duplica:** o load apaga o dia antes de o inserir, e a fact
   usa `delete+insert` pela chave `order_id` + `order_item_id`.
 
-Evidências: ⏳
-- Grelha do Airflow depois do backfill: `evidence/airflow_grid.png`
-- Linhas da `fact_sales` antes e depois de reprocessar [DIA]: [ANTES] → [DEPOIS]
+Evidências:
+- Grelha do Airflow depois do backfill: [`evidence/airflow_grid.png`](evidence/airflow_grid.png)
+  — 13 execuções a verde e a de 2018-05-09 a vermelho.
+- Linhas por dia no raw e na fact depois do backfill:
+  [`evidence/pa2_counts.txt`](evidence/pa2_counts.txt) — 4 471 no raw, 4 059 na fact.
+- Reprocessar 2018-05-03 pelo Airflow não duplicou linhas: a `fact_sales` tinha 4 059
+  linhas antes e 4 059 depois (357 desse dia antes e depois, 0 duplicados no grão):
+  [`evidence/idempotencia_2018-05-03.txt`](evidence/idempotencia_2018-05-03.txt).
 
 ### Tarefa 5 — Incidente
 
-⏳ **Dia corrompido:** [DIA]. **Testes que falharam:** [TESTES] (ver
-`evidence/dbt_test_[...].txt`). A grelha mostra a tarefa `test` a vermelho e a
-`transform_marts` em `upstream_failed`, por isso a `fact_sales` não foi atualizada
-nesse dia: [contagem da fact antes e depois].
+**Dia corrompido: 2018-05-09.** No `dbt test` desse dia falharam três testes
+(`PASS=7 ERROR=3`, ver
+[`evidence/dbt_test_2018-05-09_corrompido.txt`](evidence/dbt_test_2018-05-09_corrompido.txt)):
+
+| Teste que falhou | Linhas | Defeito no lote |
+|---|---:|---|
+| `item_unico` | 20 | 20 pares (`order_id`, `order_item_id`) aparecem duas vezes |
+| `not_null` em `customer_id` | 10 | itens sem cliente |
+| `price_positivo` | 15 | preços negativos (o mais baixo é −299,00) |
+
+O lote tem 412 linhas e 62 têm pelo menos um defeito. Um perfil da `raw_api_orders`
+confirmou que não há outro tipo de defeito nesse dia e que os outros 13 dias estão limpos.
+
+A grelha mostra a tarefa `test` a vermelho e a `transform_marts` em `upstream_failed`,
+por isso a `fact_sales` não foi atualizada nesse dia: o raw tem 412 linhas de
+2018-05-09 e a fact tem 0. A fact ficou com 4 059 linhas, as dos 13 dias limpos
+(4 471 − 412), ver [`evidence/pa2_counts.txt`](evidence/pa2_counts.txt).
 
 Como tratar o lote:
 
-1. O lote de [DIA] fica guardado tal como chegou (JSON em `data/raw/[DIA]/` e linhas em `raw_api_orders`), sem correções à mão, para servir de prova e permitir repetir o processamento.
+1. O lote de 2018-05-09 fica guardado tal como chegou (JSON em `data/raw/2018-05-09/` e linhas em `raw_api_orders`), sem correções à mão, para servir de prova e permitir repetir o processamento.
 2. A `fact_sales` desse dia não é atualizada: a DAG parou na tarefa `test` e a `transform_marts` não correu, por isso os relatórios mostram um dia em falta, e não números errados.
-3. A equipa responsável pela API é avisada com os testes que falharam ([TESTES]) e exemplos das linhas com defeito, para corrigir os dados na origem.
+3. A equipa responsável pela API é avisada com os testes que falharam (`item_unico`, `not_null` do `customer_id` e `price_positivo`) e exemplos das linhas com defeito, para corrigir os dados na origem.
 4. Quando chegarem dados corrigidos, corre-se de novo a DAG para esse dia: o extract volta a pedir os dados à API e o load substitui o lote antigo, porque apaga primeiro as linhas desse dia.
 5. Se os testes passarem, a `transform_marts` atualiza a fact com `delete+insert` pela chave `order_id` + `order_item_id`, por isso repetir o dia não cria duplicados.
 
 ### Tarefa 6 — Tarefa mais lenta
 
-⏳ Nas durações do Airflow (vista Gantt, [N] dias limpos), a tarefa mais lenta foi
-**[TAREFA]**, com cerca de **[X] s**, contra [Y] s das restantes. A causa é [CAUSA].
-Uma otimização seria [OTIMIZAÇÃO], o que reduziria [o quê] sem alterar o resultado da
-`fact_sales`. _(máx. 100 palavras)_
+Nas durações do Airflow (13 dias limpos do backfill,
+[`evidence/airflow_task_durations.txt`](evidence/airflow_task_durations.txt)), a tarefa
+mais lenta foi a **`transform_staging`**: 5,4 s em média, contra 4,2 s (`test`), 3,9 s
+(`transform_marts`), 2,2 s (`load`) e 2,1 s (`extract`). A view cria-se em 0,04 s; o
+resto é o arranque do dbt, que nessa tarefa reanalisa o projeto inteiro porque o
+`--vars` mudou de dia. Otimização: juntar os três passos numa só chamada,
+`dbt build --select stg_orders+`, que arranca uma vez e não carrega a fact se um teste
+falhar. Medido à mão: 3,1 s contra 7,8 s.
